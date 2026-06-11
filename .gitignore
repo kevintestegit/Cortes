@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.env
+ffmpeg-ext/
+input/*
+!input/.keep
+output/*
+!output/.keep
+downloads/youtube/*
+!downloads/youtube/.keep
+assets/*
+!assets/.keep
+!assets/logo.png
+venv/
+.venv/

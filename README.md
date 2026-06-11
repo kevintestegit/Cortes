@@ -65,6 +65,12 @@ python -m src.main --input input/meu_video.mp4 --max-shorts 5
 * `--add-suspense` (Opcional): `true` ou `false` (padrão: `true`). Adiciona um som de suspense nas trocas internas de cena/vídeo do corte.
 * `--suspense-sound` (Opcional): Caminho para um arquivo de som próprio (`.wav`, `.mp3`, `.aac`, `.m4a`, `.ogg` ou `.flac`). Se não for informado, o FFmpeg gera um tom curto automaticamente.
 * `--suspense-volume` (Opcional): Volume do som de suspense de `0.0` a `1.0` (padrão: `0.45`).
+* `--smart-crop` (Opcional): `true` ou `false` (padrão: `true`). Usa rosto/movimento para preencher o vídeo vertical com imagem nítida.
+* `--blur-watermark` (Opcional): `true` ou `false` (padrão: `false`). Se ativado, borra regiões detectadas como marca d'água. Fica desligado por padrão para evitar borrar o vídeo inteiro.
+* `--use-llm-ranking` (Opcional): `true` ou `false` (padrão: `false`). Usa OpenAI para reranquear candidatos se `OPENAI_API_KEY` estiver configurada.
+* `--llm-model` (Opcional): modelo OpenAI para ranking (padrão: `gpt-4o-mini`).
+* `--upload-youtube` (Opcional): `true` ou `false` (padrão: `false`). Faz upload dos shorts gerados para o YouTube se `client_secrets.json` estiver configurado.
+* `--youtube-privacy` (Opcional): `private`, `unlisted` ou `public` (padrão: `private`).
 
 ### Exemplos
 

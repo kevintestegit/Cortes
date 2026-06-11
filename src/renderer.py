@@ -1,10 +1,9 @@
 import os
-import hashlib
-import shutil
 from typing import List, Optional
 
 from .scorer import ScoredCandidate
-from .utils import logger, run_command
+from .smart_crop import crop_box_for_target
+from .utils import cleanup_temp_files, logger, make_ffmpeg_safe_file, run_command
 from .watermark_detector import WatermarkRegion
 
 OUTPUT_WIDTH = 1080
@@ -74,48 +73,6 @@ def is_valid_video_output(path: str) -> bool:
     return res.returncode == 0 and "width=" in res.stdout and "duration=" in res.stdout
 
 
-def needs_ascii_alias(path: str) -> bool:
-    try:
-        os.fspath(path).encode("ascii")
-        return False
-    except UnicodeEncodeError:
-        return True
-
-
-def make_ffmpeg_safe_file(path: str, temp_files: list[str]) -> str:
-    if not needs_ascii_alias(path):
-        return path
-
-    abs_path = os.path.abspath(path)
-    ext = os.path.splitext(abs_path)[1] or ".bin"
-    digest = hashlib.sha1(abs_path.encode("utf-8", errors="replace")).hexdigest()[:12]
-    temp_dir = os.path.abspath(os.path.join("output", "temp_ffmpeg_paths"))
-    os.makedirs(temp_dir, exist_ok=True)
-    alias_path = os.path.join(temp_dir, f"input_{digest}{ext}")
-
-    if os.path.exists(alias_path):
-        temp_files.append(alias_path)
-        return alias_path
-
-    try:
-        os.link(abs_path, alias_path)
-    except OSError:
-        shutil.copy2(abs_path, alias_path)
-
-    temp_files.append(alias_path)
-    logger.info(f"Using ASCII-safe FFmpeg alias for unicode path: {alias_path}")
-    return alias_path
-
-
-def cleanup_temp_files(paths: list[str]) -> None:
-    for path in paths:
-        try:
-            if os.path.exists(path):
-                os.remove(path)
-        except OSError:
-            pass
-
-
 def build_scene_switches(
     scene_ranges: list[tuple[float, float]],
     start_time: float,
@@ -148,8 +105,29 @@ def _append_vertical_video_filters(
     filter_parts: list[str],
     current_in: str,
     reaction_input_index: Optional[int],
+    source_width: Optional[int] = None,
+    source_height: Optional[int] = None,
+    focus_x: float = 0.5,
+    smart_crop: bool = True,
 ) -> str:
+    def append_smart_crop(input_label: str, target_height: int, output_label: str) -> None:
+        crop_w, crop_h, crop_x, crop_y = crop_box_for_target(
+            source_width or OUTPUT_WIDTH,
+            source_height or OUTPUT_HEIGHT,
+            OUTPUT_WIDTH,
+            target_height,
+            focus_x,
+        )
+        filter_parts.append(
+            f"{input_label}crop={crop_w}:{crop_h}:{crop_x}:{crop_y},"
+            f"scale={OUTPUT_WIDTH}:{target_height},setsar=1[{output_label}]"
+        )
+
     if reaction_input_index is None:
+        if smart_crop and source_width and source_height:
+            append_smart_crop(current_in, OUTPUT_HEIGHT, "main_v")
+            return "[main_v]"
+
         filter_parts.append(f"{current_in}split[v1][v2]")
         filter_parts.append(
             f"[v1]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:force_original_aspect_ratio=increase,"
@@ -162,13 +140,17 @@ def _append_vertical_video_filters(
     parrot_height = int(OUTPUT_HEIGHT * PARROT_HEIGHT_RATIO)
     main_height = OUTPUT_HEIGHT - parrot_height
 
-    filter_parts.append(f"{current_in}split[bgsrc][fgsrc]")
-    filter_parts.append(
-        f"[bgsrc]scale={OUTPUT_WIDTH}:{main_height}:force_original_aspect_ratio=increase,"
-        f"crop={OUTPUT_WIDTH}:{main_height},boxblur=20:20[topbg]"
-    )
-    filter_parts.append(f"[fgsrc]scale={OUTPUT_WIDTH}:{main_height}:force_original_aspect_ratio=decrease[fg]")
-    filter_parts.append("[topbg][fg]overlay=x=(W-w)/2:y=(H-h)/2[topv]")
+    if smart_crop and source_width and source_height:
+        append_smart_crop(current_in, main_height, "topv")
+    else:
+        filter_parts.append(f"{current_in}split[bgsrc][fgsrc]")
+        filter_parts.append(
+            f"[bgsrc]scale={OUTPUT_WIDTH}:{main_height}:force_original_aspect_ratio=increase,"
+            f"crop={OUTPUT_WIDTH}:{main_height},boxblur=20:20[topbg]"
+        )
+        filter_parts.append(f"[fgsrc]scale={OUTPUT_WIDTH}:{main_height}:force_original_aspect_ratio=decrease[fg]")
+        filter_parts.append("[topbg][fg]overlay=x=(W-w)/2:y=(H-h)/2[topv]")
+
     filter_parts.append(
         f"[{reaction_input_index}:v]scale={OUTPUT_WIDTH}:{parrot_height}:force_original_aspect_ratio=increase,"
         f"crop={OUTPUT_WIDTH}:{parrot_height},setsar=1[reactv]"
@@ -221,6 +203,10 @@ def _build_audio_filter(
     return ";".join(filters)
 
 
+def _escape_subtitle_path(path: str) -> str:
+    return path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
+
+
 def render_short(
     video_path: str,
     cand: ScoredCandidate,
@@ -236,6 +222,10 @@ def render_short(
     add_suspense: bool = True,
     suspense_sound: Optional[str] = None,
     suspense_volume: float = 0.45,
+    source_width: Optional[int] = None,
+    source_height: Optional[int] = None,
+    focus_x: float = 0.5,
+    smart_crop: bool = True,
 ) -> bool:
     start_str = str(cand.candidate.start_time)
     duration_str = str(cand.candidate.duration)
@@ -315,7 +305,15 @@ def render_short(
 
     filter_parts = []
     current_in = _append_watermark_filters(filter_parts, watermark_regions)
-    map_v = _append_vertical_video_filters(filter_parts, current_in, reaction_input_index)
+    map_v = _append_vertical_video_filters(
+        filter_parts,
+        current_in,
+        reaction_input_index,
+        source_width=source_width,
+        source_height=source_height,
+        focus_x=focus_x,
+        smart_crop=smart_crop,
+    )
 
     if has_logo and logo_input_index is not None:
         filter_parts.append(f"[{logo_input_index}:v]scale=150:-1[logo]")
@@ -323,12 +321,18 @@ def render_short(
         map_v = "[logo_v]"
 
     if subtitle_srt and os.path.exists(subtitle_srt):
-        srt_escaped = subtitle_srt.replace("\\", "/").replace(":", r"\:")
-        filter_parts.append(
-            f"{map_v}subtitles='{srt_escaped}':"
-            "force_style='FontSize=24,PrimaryColour=&H00FFFF,BorderStyle=3,Outline=2,Shadow=0'[sub_v]"
-        )
-        map_v = "[sub_v]"
+        ass_path = subtitle_srt.replace(".srt", ".ass")
+        if os.path.exists(ass_path):
+            ass_escaped = _escape_subtitle_path(ass_path)
+            filter_parts.append(f"{map_v}ass='{ass_escaped}'[sub_v]")
+            map_v = "[sub_v]"
+        else:
+            srt_escaped = _escape_subtitle_path(subtitle_srt)
+            filter_parts.append(
+                f"{map_v}subtitles='{srt_escaped}':"
+                "force_style='FontSize=24,PrimaryColour=&H00FFFF,BorderStyle=3,Outline=2,Shadow=0'[sub_v]"
+            )
+            map_v = "[sub_v]"
 
     map_a = "0:a?"
     if should_add_suspense and sfx_input_index is not None:

@@ -5,9 +5,12 @@ from .utils import logger
 from .scene_detector import get_video_info, detect_scenes, generate_candidates
 from .watermark_detector import detect_watermark_regions
 from .scorer import score_candidates, filter_overlapping
+from .llm_ranker import rerank_with_llm
 from .renderer import build_scene_switches, render_short
+from .smart_crop import estimate_focus_x
 from .subtitles import generate_subtitles
-from .metadata import export_metadata, generate_title
+from .metadata import export_metadata, generate_description, generate_title
+from .uploader import upload_to_youtube
 
 def main():
     args = parse_args()
@@ -27,7 +30,8 @@ def main():
     # 2. Watermark Detection
     watermark_regions = detect_watermark_regions(args.input_video)
     if watermark_regions:
-        logger.warning(f"Detected {len(watermark_regions)} watermark region(s) — blur will be applied automatically")
+        watermark_action = "blur will be applied" if args.blur_watermark else "blur disabled by default"
+        logger.warning(f"Detected {len(watermark_regions)} watermark region(s) - {watermark_action}")
         for reg in watermark_regions:
             logger.warning(f"  => region ({reg.x},{reg.y},{reg.width},{reg.height}) | {reg.confidence:.0%} confidence")
     else:
@@ -47,6 +51,13 @@ def main():
         
     # 4. Score Candidates
     scored_candidates = score_candidates(args.input_video, candidates, video_info)
+    if args.use_llm_ranking:
+        scored_candidates = rerank_with_llm(
+            scored_candidates,
+            args.max_shorts,
+            provider=args.llm_provider,
+            model=args.llm_model,
+        )
     
     # 5. Filter Overlapping
     selected = filter_overlapping(scored_candidates, args.max_shorts)
@@ -74,11 +85,20 @@ def main():
                 pass
     
     rendered_candidates = []
+    rendered_outputs = []
 
     for i, cand in enumerate(selected, start=1):
         output_index = len(rendered_candidates) + 1
         output_file = f"{shorts_dir}/short_{output_index:03d}.mp4"
         title = generate_title(args.theme, i)
+        focus_x = 0.5
+        if args.smart_crop:
+            focus_x = estimate_focus_x(
+                args.input_video,
+                cand.candidate.start_time,
+                cand.candidate.duration,
+                video_info.fps,
+            )
         
         subtitle_srt = None
         if args.add_subtitles:
@@ -99,7 +119,7 @@ def main():
             part_number=i,
             add_logo=args.add_logo,
             subtitle_srt=subtitle_srt,
-            watermark_regions=watermark_regions,
+            watermark_regions=watermark_regions if args.blur_watermark else [],
             parrot_dir=args.parrot_dir,
             add_parrot_reaction=args.add_parrot_reaction,
             scene_switches=build_scene_switches(
@@ -110,11 +130,20 @@ def main():
             add_suspense=args.add_suspense,
             suspense_sound=args.suspense_sound,
             suspense_volume=args.suspense_volume,
+            source_width=video_info.width,
+            source_height=video_info.height,
+            focus_x=focus_x,
+            smart_crop=args.smart_crop,
         )
         
         if success:
             logger.info(f"Successfully generated {output_file}")
             rendered_candidates.append(cand)
+            rendered_outputs.append({
+                "path": output_file,
+                "title": title,
+                "description": generate_description(args.theme),
+            })
         else:
             logger.error(f"Skipping metadata entry because render failed: {output_file}")
             
@@ -124,6 +153,15 @@ def main():
         sys.exit(1)
 
     export_metadata(rendered_candidates, args.theme, reports_dir, shorts_dir)
+    if args.upload_youtube:
+        for item in rendered_outputs:
+            upload_to_youtube(
+                item["path"],
+                item["title"],
+                item["description"],
+                tags=["shorts", args.theme],
+                privacy=args.youtube_privacy,
+            )
     logger.info("Process completed successfully!")
     logger.info(f"Check the HTML report at {reports_dir}/index.html")
 

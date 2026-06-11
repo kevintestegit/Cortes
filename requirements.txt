@@ -1,2 +1,13 @@
 scenedetect[opencv]
 numpy
+
+# Optional: highlighted subtitles
+faster-whisper
+
+# Optional: LLM ranking
+openai
+
+# Optional: YouTube upload
+google-api-python-client
+google-auth-oauthlib
+google-auth-httplib2

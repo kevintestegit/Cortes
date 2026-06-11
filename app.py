@@ -17,6 +17,9 @@ class ShortsCutterGUI:
         self.theme = tk.StringVar(value="funny")
         self.max_shorts = tk.IntVar(value=5)
         self.add_subtitles = tk.BooleanVar(value=False)
+        self.use_llm_ranking = tk.BooleanVar(value=False)
+        self.upload_youtube = tk.BooleanVar(value=False)
+        self.blur_watermark = tk.BooleanVar(value=False)
         self.thumbnail_image = None  # To keep reference to prevent garbage collection
         
         self.create_widgets()
@@ -45,6 +48,12 @@ class ShortsCutterGUI:
         tk.Spinbox(frame_opts, from_=1, to=20, textvariable=self.max_shorts, width=5, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=5)
         
         tk.Checkbutton(frame_opts, text="Legendas automáticas", variable=self.add_subtitles, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
+
+        frame_opts2 = tk.Frame(frame_opts)
+        frame_opts2.pack(fill=tk.X, pady=(10, 0))
+        tk.Checkbutton(frame_opts2, text="IA para ranking", variable=self.use_llm_ranking, font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Checkbutton(frame_opts2, text="Upload YouTube", variable=self.upload_youtube, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
+        tk.Checkbutton(frame_opts2, text="Borrar marca d'água", variable=self.blur_watermark, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
         
         # --- Botão Iniciar ---
         self.btn_run = tk.Button(
@@ -99,7 +108,10 @@ class ShortsCutterGUI:
             "--input", self.video_path.get(),
             "--theme", self.theme.get(),
             "--max-shorts", str(self.max_shorts.get()),
-            "--add-subtitles", str(self.add_subtitles.get()).lower()
+            "--add-subtitles", str(self.add_subtitles.get()).lower(),
+            "--use-llm-ranking", str(self.use_llm_ranking.get()).lower(),
+            "--upload-youtube", str(self.upload_youtube.get()).lower(),
+            "--blur-watermark", str(self.blur_watermark.get()).lower(),
         ]
         
         self.log(f"Iniciando processamento...\nArquivo: {self.video_path.get()}\n\n")

@@ -1,5 +1,5 @@
 import os
-from .utils import run_command, logger
+from .utils import cleanup_temp_files, make_ffmpeg_safe_file, run_command, logger
 
 def generate_subtitles(video_path: str, start: float, duration: float, output_srt: str, language: str) -> bool:
     try:
@@ -10,15 +10,20 @@ def generate_subtitles(video_path: str, start: float, duration: float, output_sr
         
     logger.info("Extracting audio for subtitles...")
     temp_audio = output_srt.replace(".srt", ".wav")
+    temp_files = []
+    ffmpeg_video_path = make_ffmpeg_safe_file(video_path, temp_files)
     
     cmd = [
         "ffmpeg", "-y", "-ss", str(start), "-t", str(duration),
-        "-i", video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
+        "-i", ffmpeg_video_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", "-ac", "1",
         temp_audio
     ]
     res = run_command(cmd, check=False)
     if res.returncode != 0:
         logger.error("Failed to extract audio for subtitles.")
+        if res.stderr:
+            logger.error(res.stderr[-2000:])
+        cleanup_temp_files(temp_files)
         return False
         
     logger.info("Transcribing audio...")
@@ -33,11 +38,13 @@ def generate_subtitles(video_path: str, start: float, duration: float, output_sr
                 f.write(f"{segment.text.strip()}\n\n")
                 
         os.remove(temp_audio)
+        cleanup_temp_files(temp_files)
         return True
     except Exception as e:
         logger.error(f"Error during transcription: {e}")
         if os.path.exists(temp_audio):
             os.remove(temp_audio)
+        cleanup_temp_files(temp_files)
         return False
 
 def format_timestamp(seconds: float) -> str:

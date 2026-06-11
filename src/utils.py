@@ -1,6 +1,9 @@
 import subprocess
 import logging
 import sys
+import os
+import hashlib
+import shutil
 
 def _configure_stdout_encoding() -> None:
     """Keep Windows console/GUI pipes from crashing on emoji filenames."""
@@ -40,6 +43,45 @@ def run_command(cmd: list[str], check: bool = True) -> subprocess.CompletedProce
         if check:
             raise
         return e
+
+def needs_ascii_alias(path: str) -> bool:
+    try:
+        os.fspath(path).encode("ascii")
+        return False
+    except UnicodeEncodeError:
+        return True
+
+def make_ffmpeg_safe_file(path: str, temp_files: list[str]) -> str:
+    if not needs_ascii_alias(path):
+        return path
+
+    abs_path = os.path.abspath(path)
+    ext = os.path.splitext(abs_path)[1] or ".bin"
+    digest = hashlib.sha1(abs_path.encode("utf-8", errors="replace")).hexdigest()[:12]
+    temp_dir = os.path.abspath(os.path.join("output", "temp_ffmpeg_paths"))
+    os.makedirs(temp_dir, exist_ok=True)
+    alias_path = os.path.join(temp_dir, f"input_{digest}{ext}")
+
+    if os.path.exists(alias_path):
+        temp_files.append(alias_path)
+        return alias_path
+
+    try:
+        os.link(abs_path, alias_path)
+    except OSError:
+        shutil.copy2(abs_path, alias_path)
+
+    temp_files.append(alias_path)
+    logger.info(f"Using ASCII-safe FFmpeg alias for unicode path: {alias_path}")
+    return alias_path
+
+def cleanup_temp_files(paths: list[str]) -> None:
+    for path in paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
 
 def format_time(seconds: float) -> str:
     """Format seconds into HH:MM:SS.mmm"""

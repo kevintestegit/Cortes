@@ -57,14 +57,32 @@ def main():
     reports_dir = "output/reports"
     os.makedirs(shorts_dir, exist_ok=True)
     os.makedirs(reports_dir, exist_ok=True)
+
+    for name in os.listdir(shorts_dir):
+        if name.startswith("short_") and name.lower().endswith((".mp4", ".srt")):
+            try:
+                os.remove(os.path.join(shorts_dir, name))
+            except OSError:
+                pass
+
+    for name in ("metadata.csv", "metadata.json", "index.html"):
+        path = os.path.join(reports_dir, name)
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
     
+    rendered_candidates = []
+
     for i, cand in enumerate(selected, start=1):
-        output_file = f"{shorts_dir}/short_{i:03d}.mp4"
+        output_index = len(rendered_candidates) + 1
+        output_file = f"{shorts_dir}/short_{output_index:03d}.mp4"
         title = generate_title(args.theme, i)
         
         subtitle_srt = None
         if args.add_subtitles:
-            subtitle_srt = f"{shorts_dir}/short_{i:03d}.srt"
+            subtitle_srt = f"{shorts_dir}/short_{output_index:03d}.srt"
             logger.info(f"Generating subtitles for part {i}...")
             success = generate_subtitles(
                 args.input_video, cand.candidate.start_time, cand.candidate.duration, 
@@ -96,9 +114,16 @@ def main():
         
         if success:
             logger.info(f"Successfully generated {output_file}")
+            rendered_candidates.append(cand)
+        else:
+            logger.error(f"Skipping metadata entry because render failed: {output_file}")
             
     # 7. Export Metadata
-    export_metadata(selected, args.theme, reports_dir, shorts_dir)
+    if not rendered_candidates:
+        logger.error("No valid shorts were rendered. Report was not generated.")
+        sys.exit(1)
+
+    export_metadata(rendered_candidates, args.theme, reports_dir, shorts_dir)
     logger.info("Process completed successfully!")
     logger.info(f"Check the HTML report at {reports_dir}/index.html")
 

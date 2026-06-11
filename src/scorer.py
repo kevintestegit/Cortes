@@ -3,7 +3,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import List
 from .scene_detector import SceneCandidate, VideoInfo
-from .utils import run_command, logger
+from .utils import cleanup_temp_files, make_ffmpeg_safe_file, run_command, logger
 import re
 
 @dataclass
@@ -58,12 +58,15 @@ def analyze_segment(video_path: str, start: float, end: float, video_info: Video
     avg_brightness = float(np.mean(brightness_scores)) if brightness_scores else 0.0
     
     # Audio volume check using ffmpeg
+    temp_files = []
+    ffmpeg_video_path = make_ffmpeg_safe_file(video_path, temp_files)
     cmd = [
         "ffmpeg", "-y", "-ss", str(start), "-t", str(end - start),
-        "-i", video_path, "-af", "volumedetect", "-vn", "-sn", "-f", "null", "-"
+        "-i", ffmpeg_video_path, "-af", "volumedetect", "-vn", "-sn", "-f", "null", "-"
     ]
     # ffmpeg outputs volumedetect to stderr
     res = run_command(cmd, check=False)
+    cleanup_temp_files(temp_files)
     
     # Extract max_volume from stderr: e.g. "max_volume: -2.3 dB"
     max_vol = -50.0

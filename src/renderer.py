@@ -1,4 +1,6 @@
 import os
+import hashlib
+import shutil
 from typing import List, Optional
 
 from .scorer import ScoredCandidate
@@ -10,6 +12,7 @@ OUTPUT_HEIGHT = 1920
 PARROT_HEIGHT_RATIO = 0.30
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".aac", ".m4a", ".ogg", ".flac"}
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def find_reaction_videos(parrot_dir: str) -> list[str]:
@@ -44,6 +47,73 @@ def has_audio_stream(video_path: str) -> bool:
     ]
     res = run_command(cmd, check=False)
     return res.returncode == 0 and bool(res.stdout.strip())
+
+
+def is_valid_png(path: str) -> bool:
+    if not os.path.exists(path) or os.path.getsize(path) < len(PNG_SIGNATURE):
+        return False
+    try:
+        with open(path, "rb") as f:
+            return f.read(len(PNG_SIGNATURE)) == PNG_SIGNATURE
+    except OSError:
+        return False
+
+
+def is_valid_video_output(path: str) -> bool:
+    if not os.path.exists(path) or os.path.getsize(path) < 1024:
+        return False
+
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "v:0",
+        "-show_entries", "stream=width,height:format=duration",
+        "-of", "default=noprint_wrappers=1",
+        path,
+    ]
+    res = run_command(cmd, check=False)
+    return res.returncode == 0 and "width=" in res.stdout and "duration=" in res.stdout
+
+
+def needs_ascii_alias(path: str) -> bool:
+    try:
+        os.fspath(path).encode("ascii")
+        return False
+    except UnicodeEncodeError:
+        return True
+
+
+def make_ffmpeg_safe_file(path: str, temp_files: list[str]) -> str:
+    if not needs_ascii_alias(path):
+        return path
+
+    abs_path = os.path.abspath(path)
+    ext = os.path.splitext(abs_path)[1] or ".bin"
+    digest = hashlib.sha1(abs_path.encode("utf-8", errors="replace")).hexdigest()[:12]
+    temp_dir = os.path.abspath(os.path.join("output", "temp_ffmpeg_paths"))
+    os.makedirs(temp_dir, exist_ok=True)
+    alias_path = os.path.join(temp_dir, f"input_{digest}{ext}")
+
+    if os.path.exists(alias_path):
+        temp_files.append(alias_path)
+        return alias_path
+
+    try:
+        os.link(abs_path, alias_path)
+    except OSError:
+        shutil.copy2(abs_path, alias_path)
+
+    temp_files.append(alias_path)
+    logger.info(f"Using ASCII-safe FFmpeg alias for unicode path: {alias_path}")
+    return alias_path
+
+
+def cleanup_temp_files(paths: list[str]) -> None:
+    for path in paths:
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
 
 
 def build_scene_switches(
@@ -170,15 +240,26 @@ def render_short(
     start_str = str(cand.candidate.start_time)
     duration_str = str(cand.candidate.duration)
     duration = float(cand.candidate.duration)
+    temp_files = []
 
     logger.info(f"Rendering short: {output_path} (Start: {start_str}, Duration: {duration_str})")
+    if os.path.exists(output_path):
+        try:
+            os.remove(output_path)
+        except OSError:
+            pass
+
+    ffmpeg_video_path = make_ffmpeg_safe_file(video_path, temp_files)
 
     logo_path = "assets/logo.png"
-    has_logo = add_logo and os.path.exists(logo_path)
+    has_logo = add_logo and is_valid_png(logo_path)
+    if add_logo and os.path.exists(logo_path) and not has_logo:
+        logger.warning(f"Logo file is invalid and will be skipped: {logo_path}")
     scene_switches = scene_switches or []
 
     reaction_videos = find_reaction_videos(parrot_dir) if add_parrot_reaction else []
     reaction_video = reaction_videos[(part_number - 1) % len(reaction_videos)] if reaction_videos else None
+    ffmpeg_reaction_video = make_ffmpeg_safe_file(reaction_video, temp_files) if reaction_video else None
     if add_parrot_reaction and not reaction_video:
         logger.warning(f"No parrot reaction videos found in '{parrot_dir}'. Rendering without bottom reaction.")
     elif reaction_video:
@@ -189,6 +270,7 @@ def render_short(
         and os.path.isfile(suspense_sound)
         and os.path.splitext(suspense_sound)[1].lower() in AUDIO_EXTENSIONS
     )
+    ffmpeg_suspense_sound = make_ffmpeg_safe_file(suspense_sound, temp_files) if valid_suspense_sound else None
     should_add_suspense = add_suspense and bool(scene_switches)
     if add_suspense and not scene_switches:
         logger.info("No internal scene/video switches found for this short; suspense sound skipped.")
@@ -199,29 +281,29 @@ def render_short(
         "ffmpeg", "-y",
         "-ss", start_str,
         "-t", duration_str,
-        "-i", video_path,
+        "-i", ffmpeg_video_path,
     ]
 
     reaction_input_index = None
-    if reaction_video:
+    if ffmpeg_reaction_video:
         reaction_input_index = 1
-        cmd.extend(["-stream_loop", "-1", "-i", reaction_video])
+        cmd.extend(["-stream_loop", "-1", "-i", ffmpeg_reaction_video])
 
     logo_input_index = None
     if has_logo:
-        logo_input_index = 2 if reaction_video else 1
+        logo_input_index = 2 if ffmpeg_reaction_video else 1
         cmd.extend(["-i", logo_path])
 
     sfx_input_index = None
     if should_add_suspense:
         sfx_input_index = 1
-        if reaction_video:
+        if ffmpeg_reaction_video:
             sfx_input_index += 1
         if has_logo:
             sfx_input_index += 1
 
-        if valid_suspense_sound:
-            cmd.extend(["-i", suspense_sound])
+        if ffmpeg_suspense_sound:
+            cmd.extend(["-i", ffmpeg_suspense_sound])
         else:
             if suspense_sound and not valid_suspense_sound:
                 logger.warning(f"Suspense sound file is invalid or missing: {suspense_sound}. Using generated tone.")
@@ -253,7 +335,7 @@ def render_short(
         filter_parts.append(
             _build_audio_filter(
                 duration=duration,
-                source_has_audio=has_audio_stream(video_path),
+                source_has_audio=has_audio_stream(ffmpeg_video_path),
                 sfx_input_index=sfx_input_index,
                 scene_switches=scene_switches,
                 suspense_volume=suspense_volume,
@@ -281,8 +363,29 @@ def render_short(
     res = run_command(cmd, check=False)
     if res.returncode != 0:
         logger.error(f"Failed to render {output_path}")
+        if res.stderr:
+            logger.error(res.stderr[-2000:])
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+        cleanup_temp_files(temp_files)
+        return False
+
+    if not is_valid_video_output(output_path):
+        logger.error(f"Rendered file is invalid or empty: {output_path}")
+        if res.stderr:
+            logger.error(res.stderr[-2000:])
+        if os.path.exists(output_path):
+            try:
+                os.remove(output_path)
+            except OSError:
+                pass
+        cleanup_temp_files(temp_files)
         return False
 
     wm_msg = f" (watermark blurred in {len(watermark_regions)} region{'s' if len(watermark_regions or []) > 1 else ''})" if watermark_regions else ""
     logger.info(f"Successfully rendered {output_path}{wm_msg}")
+    cleanup_temp_files(temp_files)
     return True

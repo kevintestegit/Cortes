@@ -78,6 +78,9 @@ def detect_watermark_regions(video_path: str, sample_interval: float = 2.0) -> L
             
         x, y, w, h = gx * 20, gy * 20, gw * 20, gh * 20
         confidence = count / total_samples
+        area_ratio = (w * h) / (frame_width * frame_height)
+        if area_ratio > 0.12:
+            continue
         
         is_corner = (
             (x < frame_width * 0.2 and y < frame_height * 0.2) or

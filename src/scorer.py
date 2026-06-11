@@ -14,6 +14,13 @@ class ScoredCandidate:
     motion_score: float
     audio_score: float
     brightness: float
+    viral_score: float = 0.0
+    hook_score: float = 0.0
+    retention_score: float = 0.0
+    action_score: float = 0.0
+    sound_score: float = 0.0
+    viral_label: str = "Average"
+    viral_tip: str = ""
 
 def analyze_segment(video_path: str, start: float, end: float, video_info: VideoInfo) -> dict:
     """Analyze a specific segment of the video for motion, brightness, and audio."""
@@ -55,6 +62,7 @@ def analyze_segment(video_path: str, start: float, end: float, video_info: Video
     cap.release()
     
     avg_motion = float(np.mean(motion_scores)) if motion_scores else 0.0
+    peak_motion = float(np.percentile(motion_scores, 90)) if motion_scores else 0.0
     avg_brightness = float(np.mean(brightness_scores)) if brightness_scores else 0.0
     
     # Audio volume check using ffmpeg
@@ -76,8 +84,64 @@ def analyze_segment(video_path: str, start: float, end: float, video_info: Video
         
     return {
         "motion": avg_motion,
+        "motion_peak": peak_motion,
         "brightness": avg_brightness,
         "audio_max_db": max_vol
+    }
+
+def _scale(value: float, low: float, high: float) -> float:
+    if high <= low:
+        return 0.0
+    return max(0.0, min(1.0, (value - low) / (high - low)))
+
+def calculate_viral_breakdown(cand: SceneCandidate, stats: dict, video_info: VideoInfo) -> dict:
+    duration = cand.duration
+    motion = stats["motion"]
+    motion_peak = stats["motion_peak"]
+    audio_db = stats["audio_max_db"]
+    brightness = stats["brightness"]
+
+    duration_score = 1.0 if 20 <= duration <= 36 else 0.75 if 18 <= duration <= 45 else 0.35
+    action_score = (0.65 * _scale(motion, 5, 18)) + (0.35 * _scale(motion_peak, 10, 34))
+    sound_score = _scale(audio_db, -24, -2)
+    visual_score = 1.0 if 35 <= brightness <= 225 else 0.55 if brightness >= 18 else 0.15
+    pacing_score = 1.0 if 2 <= cand.scenes_included <= 6 else 0.7 if cand.scenes_included <= 9 else 0.45
+    intro_outro_penalty = 0.0
+    if cand.start_time < video_info.duration * 0.04 or cand.end_time > video_info.duration * 0.96:
+        intro_outro_penalty = 0.12
+
+    hook_score = (action_score * 0.45) + (sound_score * 0.35) + (pacing_score * 0.20)
+    retention_score = (duration_score * 0.40) + (pacing_score * 0.30) + (visual_score * 0.20) + (sound_score * 0.10)
+    viral_score = (
+        hook_score * 34
+        + retention_score * 30
+        + action_score * 18
+        + sound_score * 12
+        + visual_score * 6
+    )
+    viral_score = max(0.0, min(100.0, viral_score - (intro_outro_penalty * 100)))
+
+    if viral_score >= 82:
+        label = "Postar primeiro"
+        tip = "Clip forte para testar como prioridade."
+    elif viral_score >= 68:
+        label = "Bom candidato"
+        tip = "Vale postar com titulo agressivo e capa clara."
+    elif viral_score >= 52:
+        label = "Teste secundario"
+        tip = "Use se precisar de volume, mas acompanhe retencao."
+    else:
+        label = "Baixa prioridade"
+        tip = "Provavelmente precisa de um momento mais forte."
+
+    return {
+        "viral_score": viral_score,
+        "hook_score": hook_score * 100,
+        "retention_score": retention_score * 100,
+        "action_score": action_score * 100,
+        "sound_score": sound_score * 100,
+        "viral_label": label,
+        "viral_tip": tip,
     }
 
 def score_candidates(video_path: str, candidates: List[SceneCandidate], video_info: VideoInfo) -> List[ScoredCandidate]:
@@ -94,6 +158,7 @@ def score_candidates(video_path: str, candidates: List[SceneCandidate], video_in
         
     for i, cand in enumerate(candidates):
         stats = analyze_segment(video_path, cand.start_time, cand.end_time, video_info)
+        viral = calculate_viral_breakdown(cand, stats, video_info)
         
         score = 0.0
         reasons = []
@@ -140,10 +205,12 @@ def score_candidates(video_path: str, candidates: List[SceneCandidate], video_in
             score += 1
             reasons.append("ideal duration")
             
-        # Normalize score a bit (0 to 10 scale approx)
-        final_score = max(0.0, min(10.0, 5 + score))
+        # Blend legacy score with the viral breakdown so older heuristics still matter.
+        legacy_score = max(0.0, min(10.0, 5 + score))
+        final_score = max(0.0, min(10.0, (viral["viral_score"] / 10 * 0.72) + (legacy_score * 0.28)))
         
         reason_str = " + ".join(reasons) if reasons else "average"
+        reason_str = f"{viral['viral_label']} | {reason_str}"
         
         scored.append(ScoredCandidate(
             candidate=cand,
@@ -151,7 +218,14 @@ def score_candidates(video_path: str, candidates: List[SceneCandidate], video_in
             reason=reason_str,
             motion_score=motion,
             audio_score=audio_db,
-            brightness=brightness
+            brightness=brightness,
+            viral_score=viral["viral_score"],
+            hook_score=viral["hook_score"],
+            retention_score=viral["retention_score"],
+            action_score=viral["action_score"],
+            sound_score=viral["sound_score"],
+            viral_label=viral["viral_label"],
+            viral_tip=viral["viral_tip"],
         ))
         
         if (i + 1) % 10 == 0:

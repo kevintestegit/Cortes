@@ -1,7 +1,12 @@
 __pycache__/
 *.pyc
 .env
+ffmpeg.exe
+ffplay.exe
+ffprobe.exe
 ffmpeg-ext/
+venv/
+.venv/
 input/*
 !input/.keep
 output/*
@@ -11,5 +16,3 @@ downloads/youtube/*
 assets/*
 !assets/.keep
 !assets/logo.png
-venv/
-.venv/

@@ -1,173 +1,231 @@
+import json
+import os
+import subprocess
+import sys
+import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
-import subprocess
-import threading
-import os
-import sys
+
 
 class ShortsCutterGUI:
     def __init__(self, root):
         self.root = root
+        self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.root.title("Shorts Auto Cutter - Interface Interativa")
-        self.root.geometry("750x650")  # Made wider for thumbnail
+        self.root.geometry("780x690")
         self.root.configure(padx=15, pady=15)
-        
-        # Variáveis da Interface
+
         self.video_path = tk.StringVar()
         self.theme = tk.StringVar(value="funny")
         self.max_shorts = tk.IntVar(value=5)
         self.add_subtitles = tk.BooleanVar(value=False)
         self.use_llm_ranking = tk.BooleanVar(value=False)
-        self.upload_youtube = tk.BooleanVar(value=False)
+        self.copy_to_drive = tk.BooleanVar(value=True)
+        self.delete_local_after_drive = tk.BooleanVar(value=True)
         self.blur_watermark = tk.BooleanVar(value=False)
-        self.thumbnail_image = None  # To keep reference to prevent garbage collection
-        
+        self.drive_output_dir = tk.StringVar(value="")
+
         self.create_widgets()
-        
+
     def create_widgets(self):
-        # Título
-        tk.Label(self.root, text="✂️ Shorts Auto Cutter", font=("Segoe UI", 16, "bold")).pack(pady=(0, 15))
+        tk.Label(self.root, text="Shorts Auto Cutter", font=("Segoe UI", 16, "bold")).pack(pady=(0, 15))
 
-        # --- Frame de Entrada de Arquivo ---
-        frame_input = tk.LabelFrame(self.root, text="1. Selecione o Vídeo", padx=10, pady=10, font=("Segoe UI", 10))
+        frame_input = tk.LabelFrame(self.root, text="1. Selecione o video", padx=10, pady=10, font=("Segoe UI", 10))
         frame_input.pack(fill=tk.X, pady=5)
-        
-        tk.Entry(frame_input, textvariable=self.video_path, width=60, state='readonly', font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 10))
-        tk.Button(frame_input, text="📂 Procurar...", command=self.browse_file, cursor="hand2").pack(side=tk.LEFT)
-        
-        # --- Frame de Configurações ---
-        frame_opts = tk.LabelFrame(self.root, text="2. Configurações", padx=10, pady=10, font=("Segoe UI", 10))
-        frame_opts.pack(fill=tk.X, pady=10)
-        
-        tk.Label(frame_opts, text="Tema (Títulos):", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        temas = ["funny", "fails", "fishing", "animals", "money"]
-        cb_tema = ttk.Combobox(frame_opts, textvariable=self.theme, values=temas, width=15, state="readonly")
-        cb_tema.pack(side=tk.LEFT, padx=5)
-        
-        tk.Label(frame_opts, text="Máximo de Shorts:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
-        tk.Spinbox(frame_opts, from_=1, to=20, textvariable=self.max_shorts, width=5, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=5)
-        
-        tk.Checkbutton(frame_opts, text="Legendas automáticas", variable=self.add_subtitles, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
 
-        frame_opts2 = tk.Frame(frame_opts)
-        frame_opts2.pack(fill=tk.X, pady=(10, 0))
-        tk.Checkbutton(frame_opts2, text="IA para ranking", variable=self.use_llm_ranking, font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        tk.Checkbutton(frame_opts2, text="Upload YouTube", variable=self.upload_youtube, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
-        tk.Checkbutton(frame_opts2, text="Borrar marca d'água", variable=self.blur_watermark, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
-        
-        # --- Botão Iniciar ---
+        tk.Entry(frame_input, textvariable=self.video_path, width=66, state="readonly", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 10))
+        tk.Button(frame_input, text="Procurar...", command=self.browse_file, cursor="hand2").pack(side=tk.LEFT)
+
+        frame_opts = tk.LabelFrame(self.root, text="2. Configuracoes", padx=10, pady=10, font=("Segoe UI", 10))
+        frame_opts.pack(fill=tk.X, pady=10)
+
+        row1 = tk.Frame(frame_opts)
+        row1.pack(fill=tk.X)
+        tk.Label(row1, text="Tema:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        temas = ["funny", "fails", "fishing", "animals", "money"]
+        ttk.Combobox(row1, textvariable=self.theme, values=temas, width=15, state="readonly").pack(side=tk.LEFT, padx=5)
+
+        tk.Label(row1, text="Maximo de Shorts:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
+        tk.Spinbox(row1, from_=1, to=20, textvariable=self.max_shorts, width=5, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=5)
+
+        tk.Checkbutton(row1, text="Legendas automaticas", variable=self.add_subtitles, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
+
+        row2 = tk.Frame(frame_opts)
+        row2.pack(fill=tk.X, pady=(10, 0))
+        tk.Checkbutton(row2, text="Ranking com IA", variable=self.use_llm_ranking, font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Checkbutton(row2, text="Enviar para Google Drive", variable=self.copy_to_drive, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
+        tk.Checkbutton(row2, text="Apagar copia local apos Drive", variable=self.delete_local_after_drive, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
+
+        row3 = tk.Frame(frame_opts)
+        row3.pack(fill=tk.X, pady=(10, 0))
+        tk.Checkbutton(row3, text="Borrar marca d'agua", variable=self.blur_watermark, font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Label(row3, text="Pasta Drive opcional:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 5))
+        tk.Entry(row3, textvariable=self.drive_output_dir, width=42, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 5))
+        tk.Button(row3, text="Escolher...", command=self.browse_drive_dir, cursor="hand2").pack(side=tk.LEFT)
+
         self.btn_run = tk.Button(
-            self.root, text="🚀 GERAR SHORTS", command=self.start_processing, 
-            bg="#28a745", fg="white", font=("Segoe UI", 12, "bold"), pady=8, cursor="hand2"
+            self.root,
+            text="GERAR SHORTS",
+            command=self.start_processing,
+            bg="#28a745",
+            fg="white",
+            font=("Segoe UI", 12, "bold"),
+            pady=8,
+            cursor="hand2",
         )
         self.btn_run.pack(fill=tk.X, pady=15)
-        
-        # --- Log Console ---
-        tk.Label(self.root, text="Console de Execução:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W)
-        self.log_area = scrolledtext.ScrolledText(self.root, height=12, state='disabled', bg="#1e1e1e", fg="#00ff00", font=("Consolas", 9))
+
+        tk.Label(self.root, text="Console de Execucao:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W)
+        self.log_area = scrolledtext.ScrolledText(
+            self.root,
+            height=13,
+            state="disabled",
+            bg="#1e1e1e",
+            fg="#00ff00",
+            font=("Consolas", 9),
+        )
         self.log_area.pack(fill=tk.BOTH, expand=True, pady=(5, 0))
 
     def browse_file(self):
         filepath = filedialog.askopenfilename(
-            title="Selecione o Vídeo",
-            filetypes=(("Vídeos MP4", "*.mp4"), ("Todos os arquivos", "*.*"))
+            title="Selecione o video",
+            filetypes=(("Videos MP4", "*.mp4"), ("Todos os arquivos", "*.*")),
         )
         if filepath:
             self.video_path.set(filepath)
-            
+
+    def browse_drive_dir(self):
+        directory = filedialog.askdirectory(title="Escolha a pasta do Google Drive")
+        if directory:
+            self.drive_output_dir.set(directory)
+
     def log(self, message):
-        self.log_area.config(state='normal')
+        self.log_area.config(state="normal")
         self.log_area.insert(tk.END, message)
         self.log_area.see(tk.END)
-        self.log_area.config(state='disabled')
-        
+        self.log_area.config(state="disabled")
+
     def start_processing(self):
         if not self.video_path.get():
-            messagebox.showwarning("Atenção", "Por favor, selecione um arquivo de vídeo primeiro!")
+            messagebox.showwarning("Atencao", "Selecione um arquivo de video primeiro.")
             return
-            
-        self.btn_run.config(state=tk.DISABLED, text="⏳ PROCESSANDO...", bg="#6c757d")
-        self.log_area.config(state='normal')
+
+        self.btn_run.config(state=tk.DISABLED, text="PROCESSANDO...", bg="#6c757d")
+        self.log_area.config(state="normal")
         self.log_area.delete(1.0, tk.END)
-        self.log_area.config(state='disabled')
-        
-        # Roda em uma thread separada para não congelar a janela visual
+        self.log_area.config(state="disabled")
+
         thread = threading.Thread(target=self.run_script)
         thread.daemon = True
         thread.start()
-        
-    def run_script(self):
-        python_exe = sys.executable
-        # Se existir o ambiente virtual na pasta, prioriza ele
-        venv_python = os.path.join(".venv", "Scripts", "python.exe")
+
+    def _python_exe(self):
+        venv_python = os.path.join(self.base_dir, ".venv", "Scripts", "python.exe")
         if os.path.exists(venv_python):
-            python_exe = venv_python
-            
-        cmd = [
-            python_exe, "-m", "src.main",
-            "--input", self.video_path.get(),
-            "--theme", self.theme.get(),
-            "--max-shorts", str(self.max_shorts.get()),
-            "--add-subtitles", str(self.add_subtitles.get()).lower(),
-            "--use-llm-ranking", str(self.use_llm_ranking.get()).lower(),
-            "--upload-youtube", str(self.upload_youtube.get()).lower(),
-            "--blur-watermark", str(self.blur_watermark.get()).lower(),
-        ]
-        
-        self.log(f"Iniciando processamento...\nArquivo: {self.video_path.get()}\n\n")
-        
+            return venv_python
+        return sys.executable
+
+    def _last_report_path(self):
+        last_run_path = os.path.join(self.base_dir, "output", "last_run.json")
         try:
-            # Cria flags para não abrir a janela preta do terminal do windows
-            creationflags = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+            with open(last_run_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            report_path = data.get("report_path")
+            if report_path and os.path.exists(report_path):
+                return report_path
+        except (OSError, json.JSONDecodeError):
+            pass
+        fallback = os.path.join(self.base_dir, "output", "reports", "index.html")
+        return fallback if os.path.exists(fallback) else None
+
+    def run_script(self):
+        cmd = [
+            self._python_exe(),
+            "-m",
+            "src.main",
+            "--input",
+            self.video_path.get(),
+            "--theme",
+            self.theme.get(),
+            "--max-shorts",
+            str(self.max_shorts.get()),
+            "--add-subtitles",
+            str(self.add_subtitles.get()).lower(),
+            "--use-llm-ranking",
+            str(self.use_llm_ranking.get()).lower(),
+            "--copy-to-drive",
+            str(self.copy_to_drive.get()).lower(),
+            "--delete-local-after-drive",
+            str(self.delete_local_after_drive.get()).lower(),
+            "--blur-watermark",
+            str(self.blur_watermark.get()).lower(),
+        ]
+        if self.drive_output_dir.get().strip():
+            cmd.extend(["--drive-output-dir", self.drive_output_dir.get().strip()])
+
+        self.log(f"Iniciando processamento...\nArquivo: {self.video_path.get()}\n\n")
+
+        try:
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
-            
+
             process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                encoding='utf-8',
-                errors='replace',
+                encoding="utf-8",
+                errors="replace",
                 bufsize=1,
                 env=env,
-                creationflags=creationflags
+                creationflags=creationflags,
+                cwd=self.base_dir,
             )
-            
+
             for line in process.stdout:
-                # O root.after garante que a atualização da interface ocorra na Thread Principal
                 self.root.after(0, self.log, line)
-                
+
             process.wait()
-            
+
             if process.returncode == 0:
-                self.log("\n✅ Concluído com Sucesso!\n")
-                self.root.after(0, lambda: messagebox.showinfo("Sucesso", "Shorts gerados com sucesso!\nVerifique a pasta 'output/shorts'."))
-                
-                # Opcional: abre a pasta automaticamente
-                try:
-                    os.startfile(os.path.abspath("output/reports/index.html"))
-                except:
-                    pass
+                report_path = self._last_report_path()
+                self.log("\nConcluido com sucesso.\n")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showinfo(
+                        "Sucesso",
+                        "Shorts gerados com sucesso. O relatorio foi aberto no final do processo.",
+                    ),
+                )
+                if report_path:
+                    try:
+                        os.startfile(report_path)
+                    except OSError:
+                        pass
             else:
-                self.log("\n❌ Processo terminou com erro.\n")
-                self.root.after(0, lambda: messagebox.showerror("Erro", "Ocorreu um erro durante o processamento. Verifique o console de execução."))
-                
-        except Exception as e:
-            self.root.after(0, self.log, f"\nErro Crítico: {str(e)}\n")
-            
+                self.log("\nProcesso terminou com erro.\n")
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Erro",
+                        "Ocorreu um erro durante o processamento. Verifique o console de execucao.",
+                    ),
+                )
+        except Exception as exc:
+            self.root.after(0, self.log, f"\nErro critico: {exc}\n")
         finally:
             self.root.after(0, self.reset_button)
 
     def reset_button(self):
-        self.btn_run.config(state=tk.NORMAL, text="🚀 GERAR SHORTS", bg="#28a745")
+        self.btn_run.config(state=tk.NORMAL, text="GERAR SHORTS", bg="#28a745")
+
 
 if __name__ == "__main__":
     root = tk.Tk()
-    # Tenta usar o ícone padrão do Windows para não ficar a "pena" do Tkinter
     try:
-        root.iconbitmap(default='')
-    except:
+        root.iconbitmap(default="")
+    except Exception:
         pass
     app = ShortsCutterGUI(root)
     root.mainloop()

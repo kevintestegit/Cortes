@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 from .config import parse_args
 from .utils import logger
 from .scene_detector import get_video_info, detect_scenes, generate_candidates
@@ -9,8 +10,8 @@ from .llm_ranker import rerank_with_llm
 from .renderer import build_scene_switches, render_short
 from .smart_crop import estimate_focus_x
 from .subtitles import generate_subtitles
-from .metadata import export_metadata, generate_description, generate_title
-from .uploader import upload_to_youtube
+from .metadata import export_metadata, generate_title
+from .drive_exporter import export_run_to_google_drive
 
 def main():
     args = parse_args()
@@ -70,7 +71,7 @@ def main():
     os.makedirs(reports_dir, exist_ok=True)
 
     for name in os.listdir(shorts_dir):
-        if name.startswith("short_") and name.lower().endswith((".mp4", ".srt")):
+        if name.startswith("short_") and name.lower().endswith((".mp4", ".srt", ".ass")):
             try:
                 os.remove(os.path.join(shorts_dir, name))
             except OSError:
@@ -85,7 +86,6 @@ def main():
                 pass
     
     rendered_candidates = []
-    rendered_outputs = []
 
     for i, cand in enumerate(selected, start=1):
         output_index = len(rendered_candidates) + 1
@@ -139,11 +139,6 @@ def main():
         if success:
             logger.info(f"Successfully generated {output_file}")
             rendered_candidates.append(cand)
-            rendered_outputs.append({
-                "path": output_file,
-                "title": title,
-                "description": generate_description(args.theme),
-            })
         else:
             logger.error(f"Skipping metadata entry because render failed: {output_file}")
             
@@ -153,17 +148,32 @@ def main():
         sys.exit(1)
 
     export_metadata(rendered_candidates, args.theme, reports_dir, shorts_dir)
-    if args.upload_youtube:
-        for item in rendered_outputs:
-            upload_to_youtube(
-                item["path"],
-                item["title"],
-                item["description"],
-                tags=["shorts", args.theme],
-                privacy=args.youtube_privacy,
-            )
+
+    export_result = {
+        "enabled": False,
+        "report_path": os.path.abspath(os.path.join(reports_dir, "index.html")),
+    }
+    if args.copy_to_drive:
+        export_result = export_run_to_google_drive(
+            args.input_video,
+            shorts_dir,
+            reports_dir,
+            preferred_path=args.drive_output_dir,
+            delete_local_media=args.delete_local_after_drive,
+        )
+
+    last_run = {
+        "report_path": export_result.get("report_path", os.path.abspath(os.path.join(reports_dir, "index.html"))),
+        "drive_export": export_result,
+        "local_reports_dir": os.path.abspath(reports_dir),
+        "local_shorts_dir": os.path.abspath(shorts_dir),
+        "shorts_count": len(rendered_candidates),
+    }
+    with open(os.path.join("output", "last_run.json"), "w", encoding="utf-8") as f:
+        json.dump(last_run, f, indent=2, ensure_ascii=False)
+
     logger.info("Process completed successfully!")
-    logger.info(f"Check the HTML report at {reports_dir}/index.html")
+    logger.info(f"Check the HTML report at {last_run['report_path']}")
 
 if __name__ == "__main__":
     main()

@@ -23,8 +23,9 @@ class Config:
     use_llm_ranking: bool
     llm_provider: str
     llm_model: Optional[str]
-    upload_youtube: bool
-    youtube_privacy: str
+    copy_to_drive: bool
+    drive_output_dir: Optional[str]
+    delete_local_after_drive: bool
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser(description="Shorts Auto Cutter MVP")
@@ -40,7 +41,7 @@ def parse_args() -> Config:
     parser.add_argument("--suspense-volume", type=float, default=0.45, help="Suspense sound volume, from 0.0 to 1.0")
     parser.add_argument("--llm-provider", type=str, default="openai", choices=["openai"], help="LLM provider for optional ranking")
     parser.add_argument("--llm-model", type=str, default=None, help="LLM model for optional ranking")
-    parser.add_argument("--youtube-privacy", type=str, default="private", choices=["private", "unlisted", "public"], help="YouTube upload privacy")
+    parser.add_argument("--drive-output-dir", type=str, default=None, help="Optional Google Drive destination folder")
     
     # Booleans
     parser.add_argument("--add-subtitles", type=str, default="false", help="Add subtitles (true/false)")
@@ -50,7 +51,8 @@ def parse_args() -> Config:
     parser.add_argument("--blur-watermark", type=str, default="false", help="Blur detected watermark regions (true/false)")
     parser.add_argument("--smart-crop", type=str, default="true", help="Use face/motion-aware crop instead of blurred background layout (true/false)")
     parser.add_argument("--use-llm-ranking", type=str, default="false", help="Use optional LLM reranking for selected clips (true/false)")
-    parser.add_argument("--upload-youtube", type=str, default="false", help="Upload generated shorts to YouTube (true/false)")
+    parser.add_argument("--copy-to-drive", type=str, default="false", help="Copy generated shorts and report to Google Drive Desktop (true/false)")
+    parser.add_argument("--delete-local-after-drive", type=str, default="false", help="Delete local media files after a validated Drive copy (true/false)")
     
     args = parser.parse_args()
     
@@ -74,6 +76,7 @@ def parse_args() -> Config:
         use_llm_ranking=args.use_llm_ranking.lower() == "true",
         llm_provider=args.llm_provider,
         llm_model=args.llm_model,
-        upload_youtube=args.upload_youtube.lower() == "true",
-        youtube_privacy=args.youtube_privacy,
+        copy_to_drive=args.copy_to_drive.lower() == "true",
+        drive_output_dir=args.drive_output_dir,
+        delete_local_after_drive=args.delete_local_after_drive.lower() == "true",
     )

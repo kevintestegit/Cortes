@@ -14,21 +14,40 @@ AUDIO_EXTENSIONS = {".wav", ".mp3", ".aac", ".m4a", ".ogg", ".flac"}
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
+def _candidate_reaction_dirs(parrot_dir: str) -> list[str]:
+    dirs = []
+    for directory in (
+        parrot_dir,
+        "downloads/youtube",
+        "downloads/youtube/papagaio",
+        "downloads/youtube/Papagaio",
+        "dowloads/youtube",
+        "dowloads/youtube/papagaio",
+        "dowloads/youtube/Papagaio",
+        r"D:\Downloads\Youtube\Papagaio",
+        r"D:\Downloads\YouTube\Papagaio",
+        r"D:\Downloads\Youtube",
+        r"D:\Downloads\YouTube",
+    ):
+        if directory and directory not in dirs:
+            dirs.append(directory)
+    return dirs
+
+
 def find_reaction_videos(parrot_dir: str) -> list[str]:
-    candidate_dirs = [parrot_dir]
-    if parrot_dir == "downloads/youtube":
-        candidate_dirs.append("dowloads/youtube")
+    candidate_dirs = _candidate_reaction_dirs(parrot_dir)
 
     for directory in candidate_dirs:
         if not directory or not os.path.isdir(directory):
             continue
 
         videos = []
-        for name in os.listdir(directory):
-            path = os.path.join(directory, name)
-            ext = os.path.splitext(name)[1].lower()
-            if os.path.isfile(path) and ext in VIDEO_EXTENSIONS:
-                videos.append(path)
+        for root, _, files in os.walk(directory):
+            for name in files:
+                path = os.path.join(root, name)
+                ext = os.path.splitext(name)[1].lower()
+                if os.path.isfile(path) and ext in VIDEO_EXTENSIONS:
+                    videos.append(path)
 
         if videos:
             return sorted(videos)

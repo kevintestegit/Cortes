@@ -26,6 +26,7 @@ class ShortsCutterGUI:
         self.use_cache = tk.BooleanVar(value=True)
         self.refresh_cache = tk.BooleanVar(value=False)
         self.drive_output_dir = tk.StringVar(value="")
+        self.parrot_dir = tk.StringVar(value=r"D:\Downloads\Youtube\Papagaio")
 
         self.create_widgets()
 
@@ -69,9 +70,15 @@ class ShortsCutterGUI:
 
         row5 = tk.Frame(frame_opts)
         row5.pack(fill=tk.X, pady=(10, 0))
-        tk.Label(row5, text="Pasta Drive opcional:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        tk.Entry(row5, textvariable=self.drive_output_dir, width=52, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(5, 5))
-        tk.Button(row5, text="Escolher...", command=self.browse_drive_dir, cursor="hand2").pack(side=tk.LEFT)
+        tk.Label(row5, text="Pasta papagaio:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Entry(row5, textvariable=self.parrot_dir, width=52, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(5, 5))
+        tk.Button(row5, text="Escolher...", command=self.browse_parrot_dir, cursor="hand2").pack(side=tk.LEFT)
+
+        row6 = tk.Frame(frame_opts)
+        row6.pack(fill=tk.X, pady=(10, 0))
+        tk.Label(row6, text="Pasta Drive opcional:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Entry(row6, textvariable=self.drive_output_dir, width=52, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(5, 5))
+        tk.Button(row6, text="Escolher...", command=self.browse_drive_dir, cursor="hand2").pack(side=tk.LEFT)
 
         self.btn_run = tk.Button(
             self.root,
@@ -108,6 +115,11 @@ class ShortsCutterGUI:
         directory = filedialog.askdirectory(title="Escolha a pasta do Google Drive")
         if directory:
             self.drive_output_dir.set(directory)
+
+    def browse_parrot_dir(self):
+        directory = filedialog.askdirectory(title="Escolha a pasta dos videos do papagaio")
+        if directory:
+            self.parrot_dir.set(directory)
 
     def log(self, message):
         self.log_area.config(state="normal")
@@ -173,6 +185,10 @@ class ShortsCutterGUI:
             str(self.use_cache.get()).lower(),
             "--refresh-cache",
             str(self.refresh_cache.get()).lower(),
+            "--add-parrot",
+            "true",
+            "--parrot-dir",
+            self.parrot_dir.get().strip() or r"D:\Downloads\Youtube\Papagaio",
         ]
         if self.drive_output_dir.get().strip():
             cmd.extend(["--drive-output-dir", self.drive_output_dir.get().strip()])

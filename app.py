@@ -23,6 +23,8 @@ class ShortsCutterGUI:
         self.copy_to_drive = tk.BooleanVar(value=True)
         self.delete_local_after_drive = tk.BooleanVar(value=True)
         self.blur_watermark = tk.BooleanVar(value=False)
+        self.use_cache = tk.BooleanVar(value=True)
+        self.refresh_cache = tk.BooleanVar(value=False)
         self.drive_output_dir = tk.StringVar(value="")
 
         self.create_widgets()
@@ -59,9 +61,17 @@ class ShortsCutterGUI:
         row3 = tk.Frame(frame_opts)
         row3.pack(fill=tk.X, pady=(10, 0))
         tk.Checkbutton(row3, text="Borrar marca d'agua", variable=self.blur_watermark, font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        tk.Label(row3, text="Pasta Drive opcional:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 5))
-        tk.Entry(row3, textvariable=self.drive_output_dir, width=42, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(0, 5))
-        tk.Button(row3, text="Escolher...", command=self.browse_drive_dir, cursor="hand2").pack(side=tk.LEFT)
+
+        row4 = tk.Frame(frame_opts)
+        row4.pack(fill=tk.X, pady=(10, 0))
+        tk.Checkbutton(row4, text="Usar cache da analise", variable=self.use_cache, font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Checkbutton(row4, text="Reanalisar video", variable=self.refresh_cache, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
+
+        row5 = tk.Frame(frame_opts)
+        row5.pack(fill=tk.X, pady=(10, 0))
+        tk.Label(row5, text="Pasta Drive opcional:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        tk.Entry(row5, textvariable=self.drive_output_dir, width=52, font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(5, 5))
+        tk.Button(row5, text="Escolher...", command=self.browse_drive_dir, cursor="hand2").pack(side=tk.LEFT)
 
         self.btn_run = tk.Button(
             self.root,
@@ -159,6 +169,10 @@ class ShortsCutterGUI:
             str(self.delete_local_after_drive.get()).lower(),
             "--blur-watermark",
             str(self.blur_watermark.get()).lower(),
+            "--use-cache",
+            str(self.use_cache.get()).lower(),
+            "--refresh-cache",
+            str(self.refresh_cache.get()).lower(),
         ]
         if self.drive_output_dir.get().strip():
             cmd.extend(["--drive-output-dir", self.drive_output_dir.get().strip()])

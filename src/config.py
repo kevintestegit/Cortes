@@ -26,6 +26,8 @@ class Config:
     copy_to_drive: bool
     drive_output_dir: Optional[str]
     delete_local_after_drive: bool
+    use_cache: bool
+    refresh_cache: bool
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser(description="Shorts Auto Cutter MVP")
@@ -53,6 +55,8 @@ def parse_args() -> Config:
     parser.add_argument("--use-llm-ranking", type=str, default="false", help="Use optional LLM reranking for selected clips (true/false)")
     parser.add_argument("--copy-to-drive", type=str, default="false", help="Copy generated shorts and report to Google Drive Desktop (true/false)")
     parser.add_argument("--delete-local-after-drive", type=str, default="false", help="Delete local media files after a validated Drive copy (true/false)")
+    parser.add_argument("--use-cache", type=str, default="true", help="Reuse cached video analysis when possible (true/false)")
+    parser.add_argument("--refresh-cache", type=str, default="false", help="Ignore existing cache and rebuild analysis (true/false)")
     
     args = parser.parse_args()
     
@@ -79,4 +83,6 @@ def parse_args() -> Config:
         copy_to_drive=args.copy_to_drive.lower() == "true",
         drive_output_dir=args.drive_output_dir,
         delete_local_after_drive=args.delete_local_after_drive.lower() == "true",
+        use_cache=args.use_cache.lower() == "true",
+        refresh_cache=args.refresh_cache.lower() == "true",
     )

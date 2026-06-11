@@ -10,6 +10,7 @@ Um sistema local em Python para automatizar a geração de Shorts verticais (9:1
 * **Reação do Papagaio:** Usa vídeos em `downloads/youtube` na parte inferior do short, ocupando 30% da altura.
 * **Suspense nas Trocas:** Adiciona um som curto de suspense nas trocas internas de cena/vídeo do corte.
 * **Google Drive:** Copia os vídeos e relatórios para o Google Drive Desktop e pode apagar os MP4 locais após validar a cópia.
+* **Cache de Análise:** Guarda informações de cada vídeo analisado para reaproveitar em execuções futuras.
 * **Legendas Opcionais:** Transcreve o áudio e gera legendas automaticamente via `faster-whisper`.
 * **Relatórios:** Gera arquivos `metadata.csv`, `metadata.json` e um `index.html` para fácil visualização e cópia de descrições/títulos.
 
@@ -75,6 +76,8 @@ python -m src.main --input input/meu_video.mp4 --max-shorts 5 --copy-to-drive tr
 * `--copy-to-drive` (Opcional): `true` ou `false` (padrão: `false`). Copia shorts e relatórios para o Google Drive Desktop.
 * `--drive-output-dir` (Opcional): pasta de destino dentro do Drive. Se não informar, o app tenta detectar `G:\Meu Drive`, `G:\My Drive` ou pastas comuns.
 * `--delete-local-after-drive` (Opcional): `true` ou `false` (padrão: `false`). Apaga os arquivos de mídia locais após uma cópia validada no Drive.
+* `--use-cache` (Opcional): `true` ou `false` (padrão: `true`). Reaproveita análise anterior do mesmo arquivo.
+* `--refresh-cache` (Opcional): `true` ou `false` (padrão: `false`). Ignora cache antigo e refaz a análise.
 
 ### Exemplos
 
@@ -90,6 +93,7 @@ python -m src.main --input input/fails.mp4 --theme fails --min-duration 15 --max
 * `output/reports/index.html`: Dashboard visual com ranking viral, player embutido e botão para copiar títulos/hashtags.
 * `G:\Meu Drive\Shorts Auto Cutter\...`: destino padrão quando o Google Drive Desktop está montado. Cada execução cria uma pasta com `shorts/`, `reports/` e `drive_manifest.json`.
 * `output/last_run.json`: aponta para o relatório mais recente, local ou no Drive.
+* `output/cache/analysis/`: cache local das análises de vídeo. Pode ser apagado se você quiser forçar tudo do zero.
 
 ## Próximos Passos
 * Adicionar suporte nativo à remoção/blur de marca d'água.

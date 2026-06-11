@@ -12,6 +12,13 @@ from .smart_crop import estimate_focus_x
 from .subtitles import generate_subtitles
 from .metadata import export_metadata, generate_title
 from .drive_exporter import export_run_to_google_drive
+from .analysis_cache import (
+    AnalysisCache,
+    focus_cache_key,
+    scene_cache_key,
+    scores_cache_key,
+    watermark_cache_key,
+)
 
 def main():
     args = parse_args()
@@ -23,13 +30,24 @@ def main():
     logger.info("Starting Shorts Auto Cutter MVP")
     logger.info(f"Input: {args.input_video}")
     logger.info(f"Max shorts: {args.max_shorts}, Duration: {args.min_duration}s - {args.max_duration}s")
+
+    cache = AnalysisCache(args.input_video, enabled=args.use_cache, refresh=args.refresh_cache)
+    if args.refresh_cache:
+        logger.info("Refresh cache enabled: rebuilding video analysis.")
     
     # 1. Get Video Info
-    video_info = get_video_info(args.input_video)
+    video_info = cache.get_video_info()
+    if video_info is None:
+        video_info = get_video_info(args.input_video)
+        cache.set_video_info(video_info)
     logger.info(f"Video: {video_info.width}x{video_info.height}, {video_info.fps:.2f} fps, {video_info.duration:.2f}s")
     
     # 2. Watermark Detection
-    watermark_regions = detect_watermark_regions(args.input_video)
+    watermark_key = watermark_cache_key()
+    watermark_regions = cache.get_watermarks(watermark_key)
+    if watermark_regions is None:
+        watermark_regions = detect_watermark_regions(args.input_video)
+        cache.set_watermarks(watermark_key, watermark_regions)
     if watermark_regions:
         watermark_action = "blur will be applied" if args.blur_watermark else "blur disabled by default"
         logger.warning(f"Detected {len(watermark_regions)} watermark region(s) - {watermark_action}")
@@ -39,19 +57,31 @@ def main():
         logger.info("No significant watermark regions detected.")
     
     # 2. Detect Scenes
-    scenes = detect_scenes(args.input_video)
+    scenes_key = scene_cache_key()
+    scenes = cache.get_scenes(scenes_key)
+    if scenes is None:
+        scenes = detect_scenes(args.input_video)
+        cache.set_scenes(scenes_key, scenes)
     if not scenes:
         logger.error("No scenes detected. Exiting.")
+        cache.save()
         sys.exit(1)
         
     # 3. Generate Candidates
     candidates = generate_candidates(scenes, args.min_duration, args.max_duration)
     if not candidates:
         logger.error(f"No candidates found between {args.min_duration}s and {args.max_duration}s. Exiting.")
+        cache.save()
         sys.exit(1)
         
     # 4. Score Candidates
-    scored_candidates = score_candidates(args.input_video, candidates, video_info)
+    score_key = scores_cache_key(scenes, args.min_duration, args.max_duration)
+    scored_candidates = cache.get_scores(score_key)
+    if scored_candidates is None:
+        scored_candidates = score_candidates(args.input_video, candidates, video_info)
+        cache.set_scores(score_key, scored_candidates)
+    cache.save()
+
     if args.use_llm_ranking:
         scored_candidates = rerank_with_llm(
             scored_candidates,
@@ -93,12 +123,19 @@ def main():
         title = generate_title(args.theme, i)
         focus_x = 0.5
         if args.smart_crop:
-            focus_x = estimate_focus_x(
-                args.input_video,
-                cand.candidate.start_time,
-                cand.candidate.duration,
-                video_info.fps,
-            )
+            focus_key = focus_cache_key(cand.candidate.start_time, cand.candidate.duration, video_info.fps)
+            cached_focus = cache.get_focus_x(focus_key)
+            if cached_focus is None:
+                focus_x = estimate_focus_x(
+                    args.input_video,
+                    cand.candidate.start_time,
+                    cand.candidate.duration,
+                    video_info.fps,
+                )
+                cache.set_focus_x(focus_key, focus_x)
+                cache.save()
+            else:
+                focus_x = cached_focus
         
         subtitle_srt = None
         if args.add_subtitles:
@@ -167,10 +204,12 @@ def main():
         "drive_export": export_result,
         "local_reports_dir": os.path.abspath(reports_dir),
         "local_shorts_dir": os.path.abspath(shorts_dir),
+        "analysis_cache_path": os.path.abspath(cache.path) if args.use_cache else None,
         "shorts_count": len(rendered_candidates),
     }
     with open(os.path.join("output", "last_run.json"), "w", encoding="utf-8") as f:
         json.dump(last_run, f, indent=2, ensure_ascii=False)
+    cache.save()
 
     logger.info("Process completed successfully!")
     logger.info(f"Check the HTML report at {last_run['report_path']}")

@@ -10,7 +10,11 @@ from .llm_ranker import rerank_with_llm
 from .renderer import build_scene_switches, render_short
 from .smart_crop import estimate_focus_x
 from .subtitles import generate_subtitles
+from .sfx import resolve_suspense_sound
+from .presets import get_preset, hook_text_for
+from .package import build_manifest, generate_thumbnail, write_manifest
 from .metadata import export_metadata, generate_title
+from .source_checklist import build_source_checklist, write_source_checklist
 from .drive_exporter import export_run_to_google_drive
 from .analysis_cache import (
     AnalysisCache,
@@ -22,6 +26,21 @@ from .analysis_cache import (
 
 def main():
     args = parse_args()
+    preset = get_preset(args.preset)
+    preset_enabled = (args.preset or "").lower() != "none"
+    if preset_enabled:
+        if args.min_duration == 18:
+            args.min_duration = preset.min_duration
+        if args.max_duration == 45:
+            args.max_duration = preset.max_duration
+        if args.theme == "funny":
+            args.theme = preset.theme
+        args.add_subtitles = args.add_subtitles or preset.add_subtitles
+        args.add_parrot_reaction = args.add_parrot_reaction or preset.add_parrot_reaction
+        args.add_suspense = args.add_suspense or preset.add_suspense
+        args.smart_crop = args.smart_crop or preset.smart_crop
+        args.suspense_volume = max(args.suspense_volume, preset.suspense_volume)
+        args.add_hook = args.add_hook and preset.add_hook
     
     if not os.path.exists(args.input_video):
         logger.error(f"Input video not found: {args.input_video}")
@@ -97,8 +116,10 @@ def main():
     # 6. Render and Generate Metadata
     shorts_dir = "output/shorts"
     reports_dir = "output/reports"
+    thumbnails_dir = "output/thumbnails"
     os.makedirs(shorts_dir, exist_ok=True)
     os.makedirs(reports_dir, exist_ok=True)
+    os.makedirs(thumbnails_dir, exist_ok=True)
 
     for name in os.listdir(shorts_dir):
         if name.startswith("short_") and name.lower().endswith((".mp4", ".srt", ".ass")):
@@ -114,13 +135,36 @@ def main():
                 os.remove(path)
             except OSError:
                 pass
+
+    for name in ("source_checklist.md", "package_manifest.json"):
+        path = os.path.join(reports_dir, name)
+        if os.path.exists(path):
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    for name in os.listdir(thumbnails_dir):
+        if name.startswith("short_") and name.lower().endswith((".jpg", ".jpeg", ".png")):
+            try:
+                os.remove(os.path.join(thumbnails_dir, name))
+            except OSError:
+                pass
+
+    suspense_sound = resolve_suspense_sound(args.theme, args.suspense_sound)
+    if args.add_suspense and suspense_sound and not args.suspense_sound:
+        logger.info(f"Using theme sound effect for '{args.theme}': {suspense_sound}")
     
     rendered_candidates = []
+    generated_thumbnails = []
+    hooks_by_rank = {}
+    thumbnails_by_rank = {}
 
     for i, cand in enumerate(selected, start=1):
         output_index = len(rendered_candidates) + 1
         output_file = f"{shorts_dir}/short_{output_index:03d}.mp4"
         title = generate_title(args.theme, i)
+        hook_text = hook_text_for(args.theme, output_index) if args.add_hook else ""
         focus_x = 0.5
         if args.smart_crop:
             focus_key = focus_cache_key(cand.candidate.start_time, cand.candidate.duration, video_info.fps)
@@ -165,16 +209,24 @@ def main():
                 cand.candidate.end_time,
             ),
             add_suspense=args.add_suspense,
-            suspense_sound=args.suspense_sound,
+            suspense_sound=suspense_sound,
             suspense_volume=args.suspense_volume,
             source_width=video_info.width,
             source_height=video_info.height,
             focus_x=focus_x,
             smart_crop=args.smart_crop,
+            hook_text=hook_text,
         )
         
         if success:
             logger.info(f"Successfully generated {output_file}")
+            hooks_by_rank[output_index] = hook_text
+            if args.generate_thumbnail:
+                thumbnail_path = generate_thumbnail(output_file, thumbnails_dir)
+                if thumbnail_path:
+                    logger.info(f"Generated thumbnail: {thumbnail_path}")
+                    generated_thumbnails.append(thumbnail_path)
+                    thumbnails_by_rank[output_index] = os.path.relpath(thumbnail_path, reports_dir)
             rendered_candidates.append(cand)
         else:
             logger.error(f"Skipping metadata entry because render failed: {output_file}")
@@ -184,7 +236,31 @@ def main():
         logger.error("No valid shorts were rendered. Report was not generated.")
         sys.exit(1)
 
-    export_metadata(rendered_candidates, args.theme, reports_dir, shorts_dir)
+    export_metadata(
+        rendered_candidates,
+        args.theme,
+        reports_dir,
+        shorts_dir,
+        hooks=hooks_by_rank,
+        thumbnails=thumbnails_by_rank,
+    )
+    source_checklist_path = write_source_checklist(
+        build_source_checklist(args.input_video, watermark_count=len(watermark_regions)),
+        reports_dir,
+    )
+    manifest_path = os.path.join(reports_dir, "package_manifest.json")
+    write_manifest(
+        build_manifest(
+            input_video=args.input_video,
+            preset=preset.name if preset_enabled else "none",
+            theme=args.theme,
+            shorts_count=len(rendered_candidates),
+            report_path=os.path.abspath(os.path.join(reports_dir, "index.html")),
+            shorts_dir=shorts_dir,
+            thumbnails_dir=thumbnails_dir,
+        ),
+        manifest_path,
+    )
 
     export_result = {
         "enabled": False,
@@ -204,6 +280,10 @@ def main():
         "drive_export": export_result,
         "local_reports_dir": os.path.abspath(reports_dir),
         "local_shorts_dir": os.path.abspath(shorts_dir),
+        "local_thumbnails_dir": os.path.abspath(thumbnails_dir),
+        "package_manifest_path": os.path.abspath(manifest_path),
+        "source_checklist_path": os.path.abspath(source_checklist_path),
+        "generated_thumbnails": [os.path.abspath(path) for path in generated_thumbnails],
         "analysis_cache_path": os.path.abspath(cache.path) if args.use_cache else None,
         "shorts_count": len(rendered_candidates),
     }

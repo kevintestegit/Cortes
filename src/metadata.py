@@ -9,31 +9,83 @@ from .utils import logger
 def generate_title(theme: str, part: int) -> str:
     templates = {
         "funny": [
-            "Funniest Moments Caught on Camera #{part} #shorts",
-            "You Won't Believe This #{part} #shorts",
-            "Try Not To Laugh #{part} #shorts"
+            "Olha o que aconteceu no final #{part} #shorts",
+            "Essa reacao entregou tudo #{part} #shorts",
+            "Nao tem como nao rir disso #{part} #shorts",
         ],
         "fishing": [
-            "5 Fishing Moments That Look Unreal #{part} #shorts",
-            "Monster Catch! #{part} #shorts",
-            "Fishing Fails & Wins #{part} #shorts"
+            "Olha essa puxada absurda #{part} #shorts",
+            "Esse momento da pesca surpreendeu #{part} #shorts",
+            "Ate o final para ver isso #{part} #shorts",
         ],
         "fails": [
-            "Epic Fails of the Week #{part} #shorts",
-            "What Were They Thinking? #{part} #shorts",
-            "Ouch! That Gotta Hurt #{part} #shorts"
-        ]
+            "Nao deu certo e ficou perfeito #{part} #shorts",
+            "Olha o final dessa falha #{part} #shorts",
+            "Esse fail foi inevitavel #{part} #shorts",
+        ],
+        "football": [
+            "Que lance absurdo #{part} #shorts",
+            "Olha essa jogada ate o final #{part} #shorts",
+            "Esse corte de futebol ficou forte #{part} #shorts",
+        ],
+        "animals": [
+            "Esse bicho roubou a cena #{part} #shorts",
+            "A reacao desse animal foi demais #{part} #shorts",
+            "Olha esse momento animal #{part} #shorts",
+        ],
+        "podcast": [
+            "Essa fala ficou forte #{part} #shorts",
+            "Presta atencao nesse corte #{part} #shorts",
+            "Esse trecho resume tudo #{part} #shorts",
+        ],
+        "curiosities": [
+            "Voce sabia disso #{part} #shorts",
+            "Essa curiosidade surpreende #{part} #shorts",
+            "Ninguem te contou isso #{part} #shorts",
+        ],
     }
     
-    # Default to funny if theme not found
-    theme_templates = templates.get(theme.lower(), templates["funny"])
+    theme_templates = templates.get(theme.lower(), [
+        "Esse corte ficou forte #{part} #shorts",
+        "Olha esse momento ate o final #{part} #shorts",
+        "Corte automatico com IA #{part} #shorts",
+    ])
     template = random.choice(theme_templates)
     return template.replace("{part}", str(part))
 
 def generate_description(theme: str) -> str:
-    return f"Check out this amazing {theme} moment! Don't forget to like and subscribe! #shorts #{theme}"
+    descriptions = {
+        "funny": "Um corte engraçado com reacao, legenda e edicao para Shorts.",
+        "fails": "Um fail transformado em corte curto com ritmo, legenda e efeito.",
+        "football": "Um lance de futebol editado para Shorts com foco no momento forte.",
+        "animals": "Um momento animal com reacao, legenda e corte vertical.",
+        "podcast": "Um trecho direto ao ponto, editado para prender a atencao.",
+        "curiosities": "Uma curiosidade em formato curto para assistir ate o final.",
+        "fishing": "Um lance de pesca editado em formato curto e direto.",
+    }
+    return descriptions.get(theme.lower(), "Um corte editado automaticamente para Shorts com legenda, reacao e efeitos.")
 
-def export_metadata(candidates: List[ScoredCandidate], theme: str, reports_dir: str, shorts_dir: str):
+
+def generate_hashtags(theme: str) -> str:
+    tags = {
+        "funny": "#shorts #engracado #humor #cortes",
+        "fails": "#shorts #fails #humor #cortes",
+        "football": "#shorts #futebol #lance #cortes",
+        "animals": "#shorts #animais #pets #cortes",
+        "podcast": "#shorts #podcast #cortes #viral",
+        "curiosities": "#shorts #curiosidades #voceSabia #cortes",
+        "fishing": "#shorts #pesca #pescaria #cortes",
+    }
+    return tags.get(theme.lower(), "#shorts #cortes #viral")
+
+def export_metadata(
+    candidates: List[ScoredCandidate],
+    theme: str,
+    reports_dir: str,
+    shorts_dir: str,
+    hooks: dict[int, str] | None = None,
+    thumbnails: dict[int, str] | None = None,
+):
     logger.info("Generating metadata reports...")
     
     metadata = []
@@ -41,6 +93,8 @@ def export_metadata(candidates: List[ScoredCandidate], theme: str, reports_dir: 
     for i, cand in enumerate(candidates, start=1):
         title = generate_title(theme, i)
         desc = generate_description(theme)
+        hook = (hooks or {}).get(i, "")
+        thumbnail = (thumbnails or {}).get(i, "")
         
         file_name = f"short_{i:03d}.mp4"
         
@@ -59,9 +113,11 @@ def export_metadata(candidates: List[ScoredCandidate], theme: str, reports_dir: 
             "viral_tip": cand.viral_tip,
             "reason": cand.reason,
             "output_file": file_name,
+            "thumbnail_file": thumbnail,
+            "hook_text": hook,
             "suggested_title": title,
             "suggested_description": desc,
-            "hashtags": f"#shorts #{theme}"
+            "hashtags": generate_hashtags(theme)
         }
         metadata.append(meta)
         
@@ -173,6 +229,9 @@ def generate_html_report(metadata: List[dict], html_path: str, shorts_dir: str):
         reason = html.escape(str(item["reason"]))
         label = html.escape(str(item["viral_label"]))
         tip = html.escape(str(item["viral_tip"]))
+        hook = html.escape(str(item.get("hook_text", "")))
+        thumbnail = html.escape(str(item.get("thumbnail_file", "")))
+        thumb_html = f"<p><strong>Capa:</strong> {thumbnail}</p>" if thumbnail else ""
         
         html_content += f"""
         <div class="short-card">
@@ -192,9 +251,11 @@ def generate_html_report(metadata: List[dict], html_path: str, shorts_dir: str):
                     <span class="metric">Audio: {item['sound_score']}/100</span>
                     <span class="metric">Score tecnico: {item['score']}/10</span>
                 </div>
+                <p><strong>Hook:</strong> {hook}</p>
                 <p><strong>Motivo:</strong> <span class="badge">{reason}</span></p>
                 <p><strong>Recomendacao:</strong> {tip}</p>
                 <p><strong>Time:</strong> {item['start_time']}s - {item['end_time']}s (Duration: {item['duration']}s)</p>
+                {thumb_html}
                 <p><strong>Descricao:</strong><br><textarea id="desc-{item['rank']}" rows="4" style="width:100%;">{title}
 
 {desc}

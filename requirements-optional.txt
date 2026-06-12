@@ -1,0 +1,5 @@
+# Automatic subtitles
+faster-whisper
+
+# Optional LLM ranking
+openai

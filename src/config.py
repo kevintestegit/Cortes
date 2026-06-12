@@ -5,6 +5,7 @@ from typing import Optional
 @dataclass
 class Config:
     input_video: str
+    preset: str
     max_shorts: int
     min_duration: int
     max_duration: int
@@ -28,15 +29,18 @@ class Config:
     delete_local_after_drive: bool
     use_cache: bool
     refresh_cache: bool
+    add_hook: bool
+    generate_thumbnail: bool
 
 def parse_args() -> Config:
     parser = argparse.ArgumentParser(description="Shorts Auto Cutter MVP")
     parser.add_argument("--input", type=str, required=True, help="Path to input video (.mp4)")
+    parser.add_argument("--preset", type=str, default="funny", help="Viral editing preset (funny/fails/animals/football/podcast/curiosities)")
     parser.add_argument("--max-shorts", type=int, default=10, help="Maximum number of shorts to generate")
     parser.add_argument("--min-duration", type=int, default=18, help="Minimum duration of a short in seconds")
     parser.add_argument("--max-duration", type=int, default=45, help="Maximum duration of a short in seconds")
     parser.add_argument("--format", type=str, default="vertical", choices=["vertical"], help="Output video format")
-    parser.add_argument("--language", type=str, default="en", help="Language for subtitles")
+    parser.add_argument("--language", type=str, default="auto", help="Language for subtitles (auto/pt/en/etc.)")
     parser.add_argument("--theme", type=str, default="funny", help="Theme for title generation")
     parser.add_argument("--parrot-dir", type=str, default="downloads/youtube", help="Directory with parrot reaction videos")
     parser.add_argument("--suspense-sound", type=str, default=None, help="Optional custom suspense sound file (.wav/.mp3)")
@@ -57,11 +61,14 @@ def parse_args() -> Config:
     parser.add_argument("--delete-local-after-drive", type=str, default="false", help="Delete local media files after a validated Drive copy (true/false)")
     parser.add_argument("--use-cache", type=str, default="true", help="Reuse cached video analysis when possible (true/false)")
     parser.add_argument("--refresh-cache", type=str, default="false", help="Ignore existing cache and rebuild analysis (true/false)")
+    parser.add_argument("--add-hook", type=str, default="true", help="Add viral hook text in the first seconds (true/false)")
+    parser.add_argument("--generate-thumbnail", type=str, default="true", help="Generate thumbnail JPGs for each short (true/false)")
     
     args = parser.parse_args()
     
     return Config(
         input_video=args.input,
+        preset=args.preset,
         max_shorts=args.max_shorts,
         min_duration=args.min_duration,
         max_duration=args.max_duration,
@@ -85,4 +92,6 @@ def parse_args() -> Config:
         delete_local_after_drive=args.delete_local_after_drive.lower() == "true",
         use_cache=args.use_cache.lower() == "true",
         refresh_cache=args.refresh_cache.lower() == "true",
+        add_hook=args.add_hook.lower() == "true",
+        generate_thumbnail=args.generate_thumbnail.lower() == "true",
     )

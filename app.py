@@ -3,8 +3,20 @@ import os
 import subprocess
 import sys
 import threading
-import tkinter as tk
-from tkinter import filedialog, messagebox, scrolledtext, ttk
+
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, scrolledtext, ttk
+    TKINTER_AVAILABLE = True
+except ModuleNotFoundError:
+    tk = None
+    filedialog = None
+    messagebox = None
+    scrolledtext = None
+    ttk = None
+    TKINTER_AVAILABLE = False
+
+from src.platform_utils import default_parrot_dir, find_project_python, open_path
 
 
 class ShortsCutterGUI:
@@ -12,21 +24,22 @@ class ShortsCutterGUI:
         self.root = root
         self.base_dir = os.path.dirname(os.path.abspath(__file__))
         self.root.title("Shorts Auto Cutter - Interface Interativa")
-        self.root.geometry("780x690")
+        self.root.geometry("820x740")
         self.root.configure(padx=15, pady=15)
 
         self.video_path = tk.StringVar()
+        self.preset = tk.StringVar(value="funny")
         self.theme = tk.StringVar(value="funny")
         self.max_shorts = tk.IntVar(value=5)
-        self.add_subtitles = tk.BooleanVar(value=False)
+        self.add_subtitles = tk.BooleanVar(value=True)
         self.use_llm_ranking = tk.BooleanVar(value=False)
-        self.copy_to_drive = tk.BooleanVar(value=True)
-        self.delete_local_after_drive = tk.BooleanVar(value=True)
+        self.copy_to_drive = tk.BooleanVar(value=False)
+        self.delete_local_after_drive = tk.BooleanVar(value=False)
         self.blur_watermark = tk.BooleanVar(value=False)
         self.use_cache = tk.BooleanVar(value=True)
         self.refresh_cache = tk.BooleanVar(value=False)
         self.drive_output_dir = tk.StringVar(value="")
-        self.parrot_dir = tk.StringVar(value=r"D:\Downloads\Youtube\Papagaio")
+        self.parrot_dir = tk.StringVar(value=default_parrot_dir(self.base_dir))
 
         self.create_widgets()
 
@@ -44,8 +57,12 @@ class ShortsCutterGUI:
 
         row1 = tk.Frame(frame_opts)
         row1.pack(fill=tk.X)
+        tk.Label(row1, text="Preset:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
+        presets = ["funny", "fails", "animals", "football", "podcast", "curiosities"]
+        ttk.Combobox(row1, textvariable=self.preset, values=presets, width=12, state="readonly").pack(side=tk.LEFT, padx=5)
+
         tk.Label(row1, text="Tema:", font=("Segoe UI", 9)).pack(side=tk.LEFT)
-        temas = ["funny", "fails", "fishing", "animals", "money"]
+        temas = ["funny", "fails", "fishing", "animals", "money", "football", "podcast", "curiosities"]
         ttk.Combobox(row1, textvariable=self.theme, values=temas, width=15, state="readonly").pack(side=tk.LEFT, padx=5)
 
         tk.Label(row1, text="Maximo de Shorts:", font=("Segoe UI", 9)).pack(side=tk.LEFT, padx=(20, 0))
@@ -82,7 +99,7 @@ class ShortsCutterGUI:
 
         self.btn_run = tk.Button(
             self.root,
-            text="GERAR SHORTS",
+            text="GERAR PACOTE VIRAL",
             command=self.start_processing,
             bg="#28a745",
             fg="white",
@@ -91,6 +108,11 @@ class ShortsCutterGUI:
             cursor="hand2",
         )
         self.btn_run.pack(fill=tk.X, pady=15)
+
+        frame_actions = tk.Frame(self.root)
+        frame_actions.pack(fill=tk.X, pady=(0, 10))
+        tk.Button(frame_actions, text="Abrir relatorio", command=self.open_last_report, cursor="hand2").pack(side=tk.LEFT)
+        tk.Button(frame_actions, text="Abrir pasta de saida", command=self.open_output_dir, cursor="hand2").pack(side=tk.LEFT, padx=(8, 0))
 
         tk.Label(self.root, text="Console de Execucao:", font=("Segoe UI", 9, "bold")).pack(anchor=tk.W)
         self.log_area = scrolledtext.ScrolledText(
@@ -132,7 +154,7 @@ class ShortsCutterGUI:
             messagebox.showwarning("Atencao", "Selecione um arquivo de video primeiro.")
             return
 
-        self.btn_run.config(state=tk.DISABLED, text="PROCESSANDO...", bg="#6c757d")
+        self.btn_run.config(state=tk.DISABLED, text="GERANDO PACOTE...", bg="#6c757d")
         self.log_area.config(state="normal")
         self.log_area.delete(1.0, tk.END)
         self.log_area.config(state="disabled")
@@ -142,10 +164,7 @@ class ShortsCutterGUI:
         thread.start()
 
     def _python_exe(self):
-        venv_python = os.path.join(self.base_dir, ".venv", "Scripts", "python.exe")
-        if os.path.exists(venv_python):
-            return venv_python
-        return sys.executable
+        return find_project_python(self.base_dir, current_python=sys.executable)
 
     def _last_report_path(self):
         last_run_path = os.path.join(self.base_dir, "output", "last_run.json")
@@ -160,6 +179,29 @@ class ShortsCutterGUI:
         fallback = os.path.join(self.base_dir, "output", "reports", "index.html")
         return fallback if os.path.exists(fallback) else None
 
+    def _last_output_dir(self):
+        last_run_path = os.path.join(self.base_dir, "output", "last_run.json")
+        try:
+            with open(last_run_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            shorts_dir = data.get("local_shorts_dir")
+            if shorts_dir and os.path.isdir(shorts_dir):
+                return shorts_dir
+        except (OSError, json.JSONDecodeError):
+            pass
+        fallback = os.path.join(self.base_dir, "output")
+        return fallback if os.path.isdir(fallback) else self.base_dir
+
+    def open_last_report(self):
+        report_path = self._last_report_path()
+        if not report_path:
+            messagebox.showinfo("Relatorio", "Nenhum relatorio foi gerado ainda.")
+            return
+        open_path(report_path)
+
+    def open_output_dir(self):
+        open_path(self._last_output_dir())
+
     def run_script(self):
         cmd = [
             self._python_exe(),
@@ -167,6 +209,8 @@ class ShortsCutterGUI:
             "src.main",
             "--input",
             self.video_path.get(),
+            "--preset",
+            self.preset.get(),
             "--theme",
             self.theme.get(),
             "--max-shorts",
@@ -188,7 +232,11 @@ class ShortsCutterGUI:
             "--add-parrot",
             "true",
             "--parrot-dir",
-            self.parrot_dir.get().strip() or r"D:\Downloads\Youtube\Papagaio",
+            self.parrot_dir.get().strip() or default_parrot_dir(self.base_dir),
+            "--add-hook",
+            "true",
+            "--generate-thumbnail",
+            "true",
         ]
         if self.drive_output_dir.get().strip():
             cmd.extend(["--drive-output-dir", self.drive_output_dir.get().strip()])
@@ -229,10 +277,7 @@ class ShortsCutterGUI:
                     ),
                 )
                 if report_path:
-                    try:
-                        os.startfile(report_path)
-                    except OSError:
-                        pass
+                    open_path(report_path)
             else:
                 self.log("\nProcesso terminou com erro.\n")
                 self.root.after(
@@ -248,10 +293,17 @@ class ShortsCutterGUI:
             self.root.after(0, self.reset_button)
 
     def reset_button(self):
-        self.btn_run.config(state=tk.NORMAL, text="GERAR SHORTS", bg="#28a745")
+        self.btn_run.config(state=tk.NORMAL, text="GERAR PACOTE VIRAL", bg="#28a745")
 
 
 if __name__ == "__main__":
+    if not TKINTER_AVAILABLE:
+        print(
+            "Tkinter nao esta instalado. No Ubuntu/Debian, instale com: "
+            "sudo apt install python3-tk"
+        )
+        sys.exit(1)
+
     root = tk.Tk()
     try:
         root.iconbitmap(default="")

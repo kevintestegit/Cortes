@@ -12,6 +12,11 @@ PARROT_HEIGHT_RATIO = 0.30
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".mkv", ".webm", ".avi"}
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".aac", ".m4a", ".ogg", ".flac"}
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+HOOK_FONT_PATHS = (
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/Library/Fonts/Arial Bold.ttf",
+    "C:/Windows/Fonts/arialbd.ttf",
+)
 
 
 def _candidate_reaction_dirs(parrot_dir: str) -> list[str]:
@@ -102,6 +107,16 @@ def build_scene_switches(
         if start_time + 0.35 < scene_start < end_time - 0.35:
             switches.append(round(scene_start - start_time, 3))
     return switches
+
+
+def _suspense_markers(scene_switches: list[float], duration: float, enabled: bool) -> list[float]:
+    if not enabled:
+        return []
+    if scene_switches:
+        return scene_switches
+    if duration >= 4.0:
+        return [round(duration / 2, 3)]
+    return []
 
 
 def _append_watermark_filters(
@@ -226,6 +241,38 @@ def _escape_subtitle_path(path: str) -> str:
     return path.replace("\\", "/").replace(":", r"\:").replace("'", r"\'")
 
 
+def _escape_drawtext_text(text: str) -> str:
+    return (
+        text.replace("\\", "\\\\")
+        .replace("'", r"\\'")
+        .replace(":", r"\\:")
+        .replace("%", r"\\%")
+        .replace("\n", " ")
+    )
+
+
+def _hook_font_option() -> str:
+    for path in HOOK_FONT_PATHS:
+        if os.path.exists(path):
+            return f":fontfile='{_escape_subtitle_path(path)}'"
+    return ""
+
+
+def _hook_filter(input_label: str, hook_text: str, output_label: str) -> str:
+    clean = " ".join((hook_text or "").split())
+    if not clean:
+        return ""
+
+    escaped = _escape_drawtext_text(clean.upper()[:42])
+    return (
+        f"{input_label}drawtext=text='{escaped}'{_hook_font_option()}:"
+        "fontsize=76:fontcolor=white:borderw=8:bordercolor=black:"
+        "box=1:boxcolor=black@0.35:boxborderw=24:"
+        "x=(w-text_w)/2:y=92:enable='between(t,0,2.4)'"
+        f"[{output_label}]"
+    )
+
+
 def render_short(
     video_path: str,
     cand: ScoredCandidate,
@@ -245,6 +292,7 @@ def render_short(
     source_height: Optional[int] = None,
     focus_x: float = 0.5,
     smart_crop: bool = True,
+    hook_text: str = "",
 ) -> bool:
     start_str = str(cand.candidate.start_time)
     duration_str = str(cand.candidate.duration)
@@ -280,11 +328,11 @@ def render_short(
         and os.path.splitext(suspense_sound)[1].lower() in AUDIO_EXTENSIONS
     )
     ffmpeg_suspense_sound = make_ffmpeg_safe_file(suspense_sound, temp_files) if valid_suspense_sound else None
-    should_add_suspense = add_suspense and bool(scene_switches)
-    if add_suspense and not scene_switches:
-        logger.info("No internal scene/video switches found for this short; suspense sound skipped.")
-    elif should_add_suspense:
-        logger.info(f"Adding suspense sound at {len(scene_switches)} switch(es): {scene_switches}")
+    suspense_markers = _suspense_markers(scene_switches, duration, add_suspense)
+    should_add_suspense = bool(suspense_markers)
+    if should_add_suspense:
+        marker_kind = "switch" if scene_switches else "midpoint"
+        logger.info(f"Adding suspense sound at {len(suspense_markers)} {marker_kind}(s): {suspense_markers}")
 
     cmd = [
         "ffmpeg", "-y",
@@ -339,6 +387,11 @@ def render_short(
         filter_parts.append(f"{map_v}[logo]overlay=W-w-30:30[logo_v]")
         map_v = "[logo_v]"
 
+    hook_filter = _hook_filter(map_v, hook_text, "hook_v")
+    if hook_filter:
+        filter_parts.append(hook_filter)
+        map_v = "[hook_v]"
+
     if subtitle_srt and os.path.exists(subtitle_srt):
         ass_path = subtitle_srt.replace(".srt", ".ass")
         if os.path.exists(ass_path):
@@ -360,7 +413,7 @@ def render_short(
                 duration=duration,
                 source_has_audio=has_audio_stream(ffmpeg_video_path),
                 sfx_input_index=sfx_input_index,
-                scene_switches=scene_switches,
+                scene_switches=suspense_markers,
                 suspense_volume=suspense_volume,
             )
         )

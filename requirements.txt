@@ -1,8 +1,3 @@
-scenedetect[opencv]
+scenedetect
 numpy
-
-# Optional: highlighted subtitles
-faster-whisper
-
-# Optional: LLM ranking
-openai
+opencv-python

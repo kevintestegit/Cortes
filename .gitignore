@@ -13,6 +13,13 @@ output/*
 !output/.keep
 downloads/youtube/*
 !downloads/youtube/.keep
+downloads/source/*
+!downloads/source/.keep
 assets/*
 !assets/.keep
 !assets/logo.png
+!assets/sfx/
+!assets/sfx/*.wav
+!scripts/
+!scripts/*.sh
+!scripts/*.ps1
